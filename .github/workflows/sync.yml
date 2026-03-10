@@ -27,7 +27,8 @@ jobs:
 
       - name: Run sync script
         env:
-          CANVAS_TOKEN: ${{ secrets.CANVAS_TOKEN }}
-          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
-          DATABASE_ID:  ${{ secrets.DATABASE_ID }}
+          CANVAS_TOKEN:      ${{ secrets.CANVAS_TOKEN }}
+          NOTION_TOKEN:      ${{ secrets.NOTION_TOKEN }}
+          ASSIGNMENTS_DB_ID: ${{ secrets.ASSIGNMENTS_DB_ID }}
+          TASKS_DB_ID:       ${{ secrets.TASKS_DB_ID }}
         run: python sync_canvas.py
