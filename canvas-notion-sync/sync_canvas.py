@@ -44,14 +44,19 @@ def fetch_assignments() -> tuple[list[dict], dict[int, str]]:
         if item.get("plannable_type") != "assignment":
             continue
 
-        assignment = item.get("plannable") or {}
-        assignment["submission"] = item.get("submission")
+        plannable = item.get("plannable") or {}
 
-        course_id = item.get("course_id")
-        assignment["course_id"] = course_id
-        assignment["due_at"] = item.get("plannable_date")
+        assignment = {
+            "id": plannable.get("id"),
+            "name": plannable.get("title", "Untitled"),
+            "course_id": item.get("course_id"),
+            "due_at": item.get("plannable_date"),
+            "points_possible": plannable.get("points_possible"),
+            "html_url": item.get("html_url"),
+            "submissions": item.get("submissions") or {},
+        }
 
-        course_names[course_id] = item.get("context_name", "Unknown")
+        course_names[assignment["course_id"]] = item.get("context_name", "Unknown")
 
         assignments.append(assignment)
 
@@ -158,9 +163,8 @@ def _fetch_existing_by_title(database_id: str) -> dict[str, dict]:
 # ---------------------------------------------------------------------------
 
 def is_completed(assignment: dict) -> bool:
-    submission = assignment.get("submission") or {}
-    state = submission.get("workflow_state")
-    return state in {"submitted", "graded"}
+    subs = assignment.get("submissions") or {}
+    return bool(subs.get("submitted") or subs.get("graded"))
 
 
 def days_until_due(due_at: str | None) -> float:
@@ -310,7 +314,7 @@ def _sync_assignments_db(assignments, course_names):
 
     existing = _fetch_existing_by_assignment_id(ASSIGNMENTS_DB_ID)
 
-    created = skipped = 0
+    created = skipped = failed = 0
 
     for a in assignments:
         aid = a["id"]
@@ -319,10 +323,14 @@ def _sync_assignments_db(assignments, course_names):
             skipped += 1
             continue
 
-        create_assignment_page(a, course_names)
-        created += 1
+        try:
+            create_assignment_page(a, course_names)
+            created += 1
+        except Exception:
+            log.exception("Failed to create assignment %s (%s)", aid, a.get("name"))
+            failed += 1
 
-    log.info("Created %d | Skipped %d", created, skipped)
+    log.info("Created %d | Skipped %d | Failed %d", created, skipped, failed)
 
 
 def _sync_tasks_db(assignments, course_names):
@@ -330,26 +338,27 @@ def _sync_tasks_db(assignments, course_names):
 
     existing = _fetch_existing_by_title(TASKS_DB_ID)
 
-    created = updated = skipped = 0
+    created = updated = skipped = failed = 0
 
     for a in assignments:
         title = _task_title(a, course_names)
-
-        if title in existing:
-            if _needs_update(existing[title], a):
-                update_task_page(existing[title]["page_id"], a, course_names)
-                updated += 1
+        try:
+            if title in existing:
+                if _needs_update(existing[title], a):
+                    update_task_page(existing[title]["page_id"], a, course_names)
+                    updated += 1
+                else:
+                    skipped += 1
             else:
-                skipped += 1
-        else:
-            create_task_page(a, course_names)
-            created += 1
+                create_task_page(a, course_names)
+                created += 1
+        except Exception:
+            log.exception("Failed to sync task %s (%s)", a["id"], a.get("name"))
+            failed += 1
 
     log.info(
-        "Created %d | Updated %d | Skipped %d",
-        created,
-        updated,
-        skipped,
+        "Created %d | Updated %d | Skipped %d | Failed %d",
+        created, updated, skipped, failed,
     )
 
 
