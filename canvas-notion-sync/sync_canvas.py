@@ -24,26 +24,42 @@ notion = NotionClient(auth=NOTION_TOKEN)
 # ---------------------------------------------------------------------------
 
 def fetch_assignments() -> list[dict]:
-    """Return every assignment visible to the authenticated Canvas user.
+    """Return every assignment across all active courses for the authenticated user.
 
-    Handles pagination via the ``Link`` header with ``per_page=100``.
+    Canvas has no single "all assignments" endpoint, so we first list
+    courses and then paginate through each course's assignments.
     """
-    url = f"{CANVAS_BASE}/users/self/assignments"
-    params = {"per_page": 100}
     headers = {"Authorization": f"Bearer {CANVAS_TOKEN}"}
+    courses = _paginated_get(f"{CANVAS_BASE}/courses", headers)
+    log.info("Found %d course(s) in Canvas.", len(courses))
 
     assignments: list[dict] = []
+    for course in courses:
+        course_id = course["id"]
+        url = f"{CANVAS_BASE}/courses/{course_id}/assignments"
+        try:
+            course_assignments = _paginated_get(url, headers)
+        except requests.HTTPError as exc:
+            log.warning("Skipping course %s: %s", course_id, exc)
+            continue
+        assignments.extend(course_assignments)
+
+    return assignments
+
+
+def _paginated_get(url: str, headers: dict) -> list[dict]:
+    """GET every page of a Canvas list endpoint (per_page=100)."""
+    params: dict = {"per_page": 100}
+    results: list[dict] = []
 
     while url:
         resp = requests.get(url, headers=headers, params=params, timeout=30)
         resp.raise_for_status()
-        assignments.extend(resp.json())
-
-        # Canvas returns pagination links in the "Link" header.
+        results.extend(resp.json())
         url = _next_link(resp.headers.get("Link", ""))
-        params = {}  # params are already baked into the next URL
+        params = {}
 
-    return assignments
+    return results
 
 
 def _next_link(link_header: str) -> str | None:
