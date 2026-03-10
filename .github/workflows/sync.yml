@@ -9,6 +9,10 @@ jobs:
   sync:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: canvas-notion-sync
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
