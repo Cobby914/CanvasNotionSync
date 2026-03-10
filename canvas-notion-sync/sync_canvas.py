@@ -220,7 +220,7 @@ def _build_assignment_properties(assignment: dict, course_names: dict) -> dict:
 
     due = assignment.get("due_at")
     if due:
-        props["Due Date"] = {"date": {"start": due}}
+        props["Due date"] = {"date": {"start": due}}
 
     return props
 
