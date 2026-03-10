@@ -32,3 +32,4 @@ jobs:
           ASSIGNMENTS_DB_ID: ${{ secrets.ASSIGNMENTS_DB_ID }}
           TASKS_DB_ID:       ${{ secrets.TASKS_DB_ID }}
         run: python sync_canvas.py
+
