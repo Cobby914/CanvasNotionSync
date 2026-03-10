@@ -81,8 +81,8 @@ def _next_link(link_header: str) -> str | None:
 # Notion — shared helpers
 # ---------------------------------------------------------------------------
 
-def _fetch_existing_ids(database_id: str) -> dict[int, dict]:
-    """Return a mapping of Assignment ID → page metadata for a Notion DB."""
+def _fetch_existing_by_assignment_id(database_id: str) -> dict[int, dict]:
+    """Return a mapping of Assignment ID → page metadata for the Assignments DB."""
     existing: dict[int, dict] = {}
     start_cursor: str | None = None
 
@@ -98,12 +98,39 @@ def _fetch_existing_ids(database_id: str) -> dict[int, dict]:
             aid = props.get("Assignment ID", {}).get("number")
             if aid is None:
                 continue
+            existing[int(aid)] = {"page_id": page["id"]}
+
+        if not result.get("has_more"):
+            break
+        start_cursor = result.get("next_cursor")
+
+    return existing
+
+
+def _fetch_existing_by_title(database_id: str) -> dict[str, dict]:
+    """Return a mapping of task title → page metadata for the Task Tracker DB."""
+    existing: dict[str, dict] = {}
+    start_cursor: str | None = None
+
+    while True:
+        query_kwargs: dict = {"database_id": database_id, "page_size": 100}
+        if start_cursor:
+            query_kwargs["start_cursor"] = start_cursor
+
+        result = notion.databases.query(**query_kwargs)
+
+        for page in result["results"]:
+            props = page["properties"]
+            title_parts = props.get("Task name", {}).get("title", [])
+            title = "".join(t.get("plain_text", "") for t in title_parts)
+            if not title:
+                continue
 
             due_prop = props.get("Due date", {}).get("date") or {}
             priority_prop = props.get("Priority", {}).get("select") or {}
             effort_prop = props.get("Effort level", {}).get("select") or {}
 
-            existing[int(aid)] = {
+            existing[title] = {
                 "page_id": page["id"],
                 "due": due_prop.get("start"),
                 "priority": priority_prop.get("name"),
@@ -247,7 +274,6 @@ def _build_task_properties(
 
     properties: dict = {
         "Task name": {"title": [{"text": {"content": title}}]},
-        "Assignment ID": {"number": assignment["id"]},
         "Due date": {"date": {"start": due} if due else None},
         "Effort level": {"select": {"name": determine_effort(points)}},
         "Priority": {"select": {"name": determine_priority(due)}},
@@ -319,7 +345,7 @@ def _sync_assignments_db(
     course_names: dict[int, str],
 ) -> None:
     log.info("--- Assignments DB ---")
-    existing = _fetch_existing_ids(ASSIGNMENTS_DB_ID)
+    existing = _fetch_existing_by_assignment_id(ASSIGNMENTS_DB_ID)
     log.info("Found %d existing page(s).", len(existing))
 
     created = skipped = failed = 0
@@ -338,21 +364,27 @@ def _sync_assignments_db(
     log.info("Created %d | Skipped %d | Failed %d", created, skipped, failed)
 
 
+def _task_title(assignment: dict, course_names: dict[int, str]) -> str:
+    """Build the task title used for dedup in the Task Tracker DB."""
+    course_name = course_names.get(assignment.get("course_id"), "Unknown")
+    return f"[{course_name}] {assignment.get('name', 'Untitled')}"
+
+
 def _sync_tasks_db(
     assignments: list[dict],
     course_names: dict[int, str],
 ) -> None:
     log.info("--- Task Tracker DB ---")
-    existing = _fetch_existing_ids(TASKS_DB_ID)
+    existing = _fetch_existing_by_title(TASKS_DB_ID)
     log.info("Found %d existing page(s).", len(existing))
 
     created = updated = skipped = failed = 0
     for a in assignments:
-        aid = a["id"]
+        title = _task_title(a, course_names)
         try:
-            if aid in existing:
-                if _needs_update(existing[aid], a):
-                    update_task_page(existing[aid]["page_id"], a, course_names)
+            if title in existing:
+                if _needs_update(existing[title], a):
+                    update_task_page(existing[title]["page_id"], a, course_names)
                     updated += 1
                 else:
                     skipped += 1
@@ -360,7 +392,7 @@ def _sync_tasks_db(
                 create_task_page(a, course_names)
                 created += 1
         except Exception:
-            log.exception("Failed to sync task %s (%s)", aid, a.get("name"))
+            log.exception("Failed to sync task %s (%s)", a["id"], a.get("name"))
             failed += 1
 
     log.info(
