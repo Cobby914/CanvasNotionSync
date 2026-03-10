@@ -1,2 +1,2 @@
 requests
-notion-client
+notion-client==2.2.1

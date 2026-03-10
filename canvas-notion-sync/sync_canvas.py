@@ -30,8 +30,10 @@ def fetch_assignments() -> list[dict]:
     courses and then paginate through each course's assignments.
     """
     headers = {"Authorization": f"Bearer {CANVAS_TOKEN}"}
-    courses = _paginated_get(f"{CANVAS_BASE}/courses", headers)
-    log.info("Found %d course(s) in Canvas.", len(courses))
+    courses = _paginated_get(
+        f"{CANVAS_BASE}/courses?enrollment_state=active",
+        headers
+    )    log.info("Found %d course(s) in Canvas.", len(courses))
 
     assignments: list[dict] = []
     for course in courses:
