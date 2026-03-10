@@ -222,6 +222,7 @@ def _build_assignment_properties(
         "Course ID": {"number": assignment.get("course_id")},
         "Points": {"number": assignment.get("points_possible")},
         "Canvas URL": {"url": assignment.get("html_url")},
+        "Organization": {"select": {"name": "School"}},
     }
 
     due = assignment.get("due_at")
@@ -314,6 +315,7 @@ def _build_task_properties(
         "Priority": {"select": {"name": determine_priority(due)}},
         "Status": {"status": {"name": "Not started"}},
         "Task type": {"select": {"name": determine_task_type(name)}},
+        "Organization": {"select": {"name": "School"}},
     }
 
     return properties
@@ -343,6 +345,7 @@ def update_task_page(
         "Priority": props["Priority"],
         "Effort level": props["Effort level"],
         "Task type": props["Task type"],
+        "Organization": props["Organization"],
     }
 
     notion.pages.update(page_id=page_id, properties=update_props)
