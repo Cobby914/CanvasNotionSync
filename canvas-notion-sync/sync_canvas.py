@@ -3,6 +3,7 @@
 import logging
 import os
 import re
+from datetime import datetime, timezone
 from html import unescape
 
 import requests
@@ -123,10 +124,11 @@ def create_notion_assignment(assignment: dict) -> None:
 
     children = _description_blocks(assignment.get("description") or "")
 
+    # Notion allows at most 100 children per request.
     notion.pages.create(
         parent={"database_id": DATABASE_ID},
         properties=properties,
-        children=children,
+        children=children[:100],
     )
 
 
@@ -170,29 +172,59 @@ def _chunk(text: str, size: int) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Filtering
+# ---------------------------------------------------------------------------
+
+def _is_upcoming(assignment: dict, now: datetime) -> bool:
+    """Return True if the assignment's due date is in the future.
+
+    Assignments with no due date are excluded.
+    """
+    due = assignment.get("due_at")
+    if not due:
+        return False
+    try:
+        due_dt = datetime.fromisoformat(due.replace("Z", "+00:00"))
+        return due_dt > now
+    except (ValueError, TypeError):
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 def main() -> None:
     log.info("Fetching assignments from Canvas …")
-    assignments = fetch_assignments()
-    log.info("Fetched %d assignment(s) from Canvas.", len(assignments))
+    all_assignments = fetch_assignments()
+    log.info("Fetched %d total assignment(s) from Canvas.", len(all_assignments))
+
+    now = datetime.now(timezone.utc)
+    assignments = [a for a in all_assignments if _is_upcoming(a, now)]
+    log.info("Filtered to %d upcoming assignment(s).", len(assignments))
 
     existing_ids = fetch_existing_notion_assignments()
     log.info("Found %d existing assignment(s) in Notion.", len(existing_ids))
 
     created = 0
     skipped = 0
+    failed = 0
 
     for a in assignments:
         if a["id"] in existing_ids:
             skipped += 1
             continue
-        create_notion_assignment(a)
-        created += 1
+        try:
+            create_notion_assignment(a)
+            created += 1
+        except Exception:
+            log.exception("Failed to create assignment %s (%s)", a["id"], a.get("name"))
+            failed += 1
 
     log.info("Created %d assignment(s) in Notion.", created)
     log.info("Skipped %d duplicate(s).", skipped)
+    if failed:
+        log.warning("Failed to create %d assignment(s).", failed)
 
 
 if __name__ == "__main__":
